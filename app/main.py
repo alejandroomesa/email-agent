@@ -35,15 +35,14 @@ def sync() -> dict:
         category = next((c for c in categories if c.name == result.category), None)
         label_name = category.gmail_label if category else result.category
 
-        label_id = gmail.ensure_label(label_name)
-        gmail.apply_label(email.message_id, label_id)
+        gmail.apply_label(email.message_id, label_name)
 
         storage.record(
             ProcessedRecord(
                 message_id=email.message_id,
                 thread_id=email.thread_id,
                 category=result.category,
-                label_id=label_id,
+                label=label_name,
                 confidence=result.confidence,
                 reasoning=result.reasoning,
                 classified_at=datetime.now(timezone.utc),

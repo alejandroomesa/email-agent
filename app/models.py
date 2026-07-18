@@ -35,7 +35,7 @@ class ProcessedRecord(BaseModel):
     message_id: str
     thread_id: str
     category: str
-    label_id: str
+    label: str
     confidence: float
     reasoning: str
     classified_at: datetime

@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS processed_messages (
     message_id TEXT PRIMARY KEY,
     thread_id TEXT NOT NULL,
     category TEXT NOT NULL,
-    label_id TEXT NOT NULL,
+    label TEXT NOT NULL,
     confidence REAL NOT NULL,
     reasoning TEXT NOT NULL,
     classified_at TEXT NOT NULL
@@ -35,14 +35,14 @@ class Storage:
         self._conn.execute(
             """
             INSERT INTO processed_messages
-                (message_id, thread_id, category, label_id, confidence, reasoning, classified_at)
+                (message_id, thread_id, category, label, confidence, reasoning, classified_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.message_id,
                 record.thread_id,
                 record.category,
-                record.label_id,
+                record.label,
                 record.confidence,
                 record.reasoning,
                 record.classified_at.isoformat(),

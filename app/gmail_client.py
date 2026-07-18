@@ -1,109 +1,93 @@
-import base64
-
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+import email
+import imaplib
+import re
+from contextlib import contextmanager
+from email.header import decode_header, make_header
+from email.message import Message
 
 from app import config
 from app.models import EmailMessage
 
+IMAP_HOST = "imap.gmail.com"
+IMAP_PORT = 993
 
-def _get_credentials() -> Credentials:
-    creds = None
-    if config.TOKEN_PATH.exists():
-        creds = Credentials.from_authorized_user_file(str(config.TOKEN_PATH), config.GMAIL_SCOPES)
+_THRID_RE = re.compile(rb"X-GM-THRID (\d+)")
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                str(config.CREDENTIALS_PATH), config.GMAIL_SCOPES
-            )
-            creds = flow.run_local_server(port=0)
 
-        config.TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-        config.TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
+def _require_credentials() -> tuple[str, str]:
+    if not config.GMAIL_ADDRESS or not config.GMAIL_APP_PASSWORD:
+        raise RuntimeError(
+            "Faltan GMAIL_ADDRESS y/o GMAIL_APP_PASSWORD. Generá una "
+            "contraseña de aplicación en https://myaccount.google.com/apppasswords "
+            "y definí ambas variables (ver .env.example)."
+        )
+    return config.GMAIL_ADDRESS, config.GMAIL_APP_PASSWORD
 
-    return creds
+
+@contextmanager
+def _imap_connection():
+    address, app_password = _require_credentials()
+    conn = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
+    try:
+        conn.login(address, app_password)
+        conn.select("INBOX")
+        yield conn
+    finally:
+        conn.logout()
 
 
 class GmailClient:
-    def __init__(self):
-        self._service = build("gmail", "v1", credentials=_get_credentials())
-        self._label_cache: dict[str, str] = {}
-
     def list_new_messages(self, query: str = config.GMAIL_QUERY) -> list[EmailMessage]:
-        message_ids: list[str] = []
-        request = self._service.users().messages().list(userId="me", q=query)
-        while request is not None:
-            response = request.execute()
-            message_ids.extend(m["id"] for m in response.get("messages", []))
-            request = self._service.users().messages().list_next(request, response)
+        with _imap_connection() as conn:
+            status, data = conn.uid("search", None, "X-GM-RAW", f'"{query}"')
+            if status != "OK":
+                raise RuntimeError(f"Búsqueda IMAP falló: {data}")
 
-        return [self._get_message(message_id) for message_id in message_ids]
+            uids = data[0].split()
+            return [self._fetch_message(conn, uid) for uid in uids]
 
-    def _get_message(self, message_id: str) -> EmailMessage:
-        raw = (
-            self._service.users()
-            .messages()
-            .get(userId="me", id=message_id, format="full")
-            .execute()
-        )
-        headers = {h["name"].lower(): h["value"] for h in raw["payload"].get("headers", [])}
+    def _fetch_message(self, conn: imaplib.IMAP4_SSL, uid: bytes) -> EmailMessage:
+        status, data = conn.uid("fetch", uid, "(X-GM-THRID RFC822)")
+        if status != "OK" or not data or data[0] is None:
+            raise RuntimeError(f"No se pudo leer el mensaje {uid!r}: {data}")
+
+        header, raw_email = data[0]
+        thrid_match = _THRID_RE.search(header)
+
+        parsed = email.message_from_bytes(raw_email)
 
         return EmailMessage(
-            message_id=raw["id"],
-            thread_id=raw["threadId"],
-            sender=headers.get("from", ""),
-            subject=headers.get("subject", ""),
-            body=_extract_plain_text(raw["payload"]),
+            message_id=uid.decode(),
+            thread_id=thrid_match.group(1).decode() if thrid_match else uid.decode(),
+            sender=parsed.get("From", ""),
+            subject=str(make_header(decode_header(parsed.get("Subject", "")))),
+            body=_extract_plain_text(parsed),
         )
 
-    def ensure_label(self, name: str) -> str:
-        if name in self._label_cache:
-            return self._label_cache[name]
-
-        labels = self._service.users().labels().list(userId="me").execute().get("labels", [])
-        for label in labels:
-            if label["name"] == name:
-                self._label_cache[name] = label["id"]
-                return label["id"]
-
-        created = (
-            self._service.users()
-            .labels()
-            .create(
-                userId="me",
-                body={
-                    "name": name,
-                    "labelListVisibility": "labelShow",
-                    "messageListVisibility": "show",
-                },
-            )
-            .execute()
-        )
-        self._label_cache[name] = created["id"]
-        return created["id"]
-
-    def apply_label(self, message_id: str, label_id: str) -> None:
-        self._service.users().messages().modify(
-            userId="me", id=message_id, body={"addLabelIds": [label_id]}
-        ).execute()
+    def apply_label(self, message_id: str, label: str) -> None:
+        with _imap_connection() as conn:
+            conn.uid("STORE", message_id, "+X-GM-LABELS", f"({_quote(label)})")
 
 
-def _extract_plain_text(payload: dict) -> str:
-    if payload.get("mimeType") == "text/plain" and payload.get("body", {}).get("data"):
-        return _decode(payload["body"]["data"])
+def _extract_plain_text(msg: Message) -> str:
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain" and not part.get_filename():
+                return _decode_part(part)
+        return ""
 
-    for part in payload.get("parts", []):
-        text = _extract_plain_text(part)
-        if text:
-            return text
+    if msg.get_content_type() == "text/plain":
+        return _decode_part(msg)
 
     return ""
 
 
-def _decode(data: str) -> str:
-    return base64.urlsafe_b64decode(data.encode("utf-8")).decode("utf-8", errors="replace")
+def _decode_part(part: Message) -> str:
+    payload = part.get_payload(decode=True) or b""
+    charset = part.get_content_charset() or "utf-8"
+    return payload.decode(charset, errors="replace")
+
+
+def _quote(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
