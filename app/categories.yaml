@@ -1,0 +1,36 @@
+# Categorías de clasificación.
+#
+# Esto es una PLANTILLA de ejemplo — reemplazá estas categorías por las
+# tuyas, en base a tus intereses reales. El agente no asume ninguna
+# categoría fija: todo sale de este archivo.
+#
+# - name:        nombre corto de la categoría (se usa internamente)
+# - description: se le pasa al LLM tal cual, así que escribila pensando
+#                en qué debería contener un email para caer en este balde
+# - gmail_label: nombre de la label que se va a crear/aplicar en Gmail
+
+categories:
+  - name: trabajo
+    description: >
+      Emails relacionados con tu trabajo o proyectos profesionales:
+      comunicación de colegas, clientes, herramientas de trabajo (ej. CI/CD,
+      tickets, PRs).
+    gmail_label: Agente/Trabajo
+
+  - name: facturacion
+    description: >
+      Facturas, recibos de pago, confirmaciones de compra, estados de
+      cuenta, cobros de suscripciones.
+    gmail_label: Agente/Facturacion
+
+  - name: newsletters
+    description: >
+      Boletines informativos, novedades de productos a los que estás
+      suscripto, resúmenes periódicos automáticos.
+    gmail_label: Agente/Newsletters
+
+  - name: personal
+    description: >
+      Comunicación personal de familiares, amigos o conocidos, no
+      relacionada con trabajo ni con servicios/empresas.
+    gmail_label: Agente/Personal
