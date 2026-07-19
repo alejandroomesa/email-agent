@@ -3,9 +3,9 @@ import ollama
 from app import config
 from app.models import Category, ClassificationResult, EmailMessage
 
-SYSTEM_PROMPT = """Sos un clasificador de emails. Vas a recibir un email y una \
-lista de categorías posibles, cada una con una descripción. Elegí la categoría \
-que mejor describe el email y devolvé tu respuesta en el formato JSON pedido. \
+SYSTEM_PROMPT = """Eres un clasificador de emails. Vas a recibir un email y una \
+lista de categorías posibles, cada una con una descripción. Elige la categoría \
+que mejor describe el email y devuelve tu respuesta en el formato JSON pedido. \
 El campo "category" debe ser exactamente uno de los nombres de categoría dados."""
 
 

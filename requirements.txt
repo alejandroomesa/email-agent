@@ -1,3 +1,4 @@
+customtkinter
 fastapi[standard]
 ollama
 pydantic

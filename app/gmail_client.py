@@ -37,7 +37,13 @@ def _imap_connection():
 
 
 class GmailClient:
-    def list_new_messages(self, query: str = config.GMAIL_QUERY) -> list[EmailMessage]:
+    def test_connection(self) -> None:
+        """Intenta autenticarse por IMAP; lanza si las credenciales fallan."""
+        with _imap_connection():
+            pass
+
+    def list_new_messages(self, query: str | None = None) -> list[EmailMessage]:
+        query = query if query is not None else config.GMAIL_QUERY
         with _imap_connection() as conn:
             status, data = conn.uid("search", None, "X-GM-RAW", f'"{query}"')
             if status != "OK":

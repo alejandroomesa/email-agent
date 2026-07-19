@@ -34,6 +34,8 @@ class ProcessedRecord(BaseModel):
 
     message_id: str
     thread_id: str
+    sender: str
+    subject: str
     category: str
     label: str
     confidence: float

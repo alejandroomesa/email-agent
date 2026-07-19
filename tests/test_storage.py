@@ -8,6 +8,8 @@ def _record(message_id: str = "msg-1") -> ProcessedRecord:
     return ProcessedRecord(
         message_id=message_id,
         thread_id="thread-1",
+        sender="alguien@example.com",
+        subject="Asunto de prueba",
         category="trabajo",
         label="Agente/Trabajo",
         confidence=0.9,
