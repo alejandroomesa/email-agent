@@ -1,138 +1,165 @@
-# Gmail Classifier Agent
+# Email Agent
 
-Agente que lee tu bandeja de Gmail, clasifica cada email según categorías
-que tú defines (en base a tus intereses) y les aplica la etiqueta
-correspondiente en Gmail. Guarda un registro de auditoría de cada email
-procesado para evitar reclasificar lo mismo dos veces.
+**Clasificación de Gmail con modelos locales, etiquetas personalizables y auditoría en SQLite.**
 
-Es un servicio standalone en Python: usa un LLM local vía
-[Ollama](https://ollama.com/) para clasificar (ningún email sale de tu
-máquina) y se conecta a Gmail por IMAP/SMTP con una contraseña de
-aplicación, sin pasar por Google Cloud Console.
+MVP en Python que consulta mensajes de Gmail, los clasifica mediante Ollama y aplica la etiqueta correspondiente. Incluye una API con FastAPI y una interfaz de escritorio con CustomTkinter.
 
-## Estado actual: MVP (fase 1)
+## Qué demuestra
 
-Lo que hace hoy:
+- Un flujo de IA conectado con un servicio real mediante IMAP.
+- Salida estructurada validada con Pydantic.
+- Separación de lectura, clasificación, sincronización y persistencia.
+- Registro local para evitar procesar de nuevo los mismos mensajes.
+- Pruebas con dobles de Gmail y Ollama.
 
-- Lee mensajes nuevos de tu bandeja (`in:inbox is:unread` por defecto).
-- Clasifica cada uno con un modelo local de Ollama, según las categorías
-  de `app/categories.yaml`.
-- Aplica la etiqueta de Gmail correspondiente (Gmail la crea sola si no
-  existe).
-- Registra cada clasificación en una base SQLite local para no volver a
-  procesar el mismo email en la siguiente ejecución.
+## Funcionalidades y alcance
 
-Lo que **todavía no** hace (fases siguientes):
+| Disponible | Pendiente |
+| --- | --- |
+| Consulta de mensajes según una búsqueda de Gmail | Generación de borradores de respuesta |
+| Categorías configurables en YAML | Aprobación y rechazo de respuestas |
+| Clasificación con Ollama y aplicación de etiquetas | Envío de respuestas |
+| Historial de procesamiento en SQLite | Validación de uso en producción |
+| API y aplicación de escritorio | |
 
-- Generar un borrador de respuesta con IA.
-- Exponer un flujo de aprobación/rechazo humano.
-- Enviar emails.
+La sincronización **modifica etiquetas en Gmail**. Para una demostración, utiliza una cuenta de prueba y mensajes ficticios.
 
 ## Arquitectura
 
-```
-app/
-  main.py          FastAPI: endpoints /sync, /processed, /categories
-  models.py        Modelos Pydantic (EmailMessage, Category, ClassificationResult, ProcessedRecord)
-  config.py        Settings (env vars vía .env) + carga de categories.yaml
-  gmail_client.py  Lectura y etiquetado por IMAP (contraseña de aplicación)
-  classifier.py    Clasificación vía Ollama (salida JSON estructurada)
-  storage.py       SQLite: idempotencia + auditoría
-  categories.yaml  Tus categorías de clasificación (editable)
-tests/             Tests unitarios con mocks (no llaman a Gmail ni a Ollama reales)
+```mermaid
+flowchart LR
+  A[Escritorio o API] --> B[Sincronización]
+  B --> C[Gmail por IMAP]
+  C --> D[Clasificador Ollama]
+  D --> E[Etiqueta en Gmail]
+  E --> F[Registro SQLite]
 ```
 
-### Flujo de `POST /sync`
+**Stack:** Python, FastAPI, CustomTkinter, Ollama, Pydantic, SQLite, YAML y pytest.
 
-1. Busca mensajes nuevos en Gmail por IMAP (`gmail_client.list_new_messages`,
-   usando la sintaxis de búsqueda de Gmail vía `X-GM-RAW`).
-2. Por cada mensaje, si ya fue procesado antes (según `storage`), se
-   salta.
-3. Se clasifica con Ollama, pidiendo salida JSON estructurada
-   (`{category, confidence, reasoning}`).
-4. Se aplica la etiqueta de Gmail de esa categoría al mensaje
-   (`X-GM-LABELS` por IMAP; Gmail la crea automáticamente si no existe).
-5. Se guarda el resultado en SQLite (`data/agent.db`).
+El clasificador envía remitente, asunto y hasta 4.000 caracteres del cuerpo al servidor Ollama configurado. Con Ollama ejecutado localmente y un modelo local, esa inferencia se realiza en el equipo; Gmail sigue siendo un servicio remoto. Una configuración remota o de nube de Ollama cambia ese límite de privacidad.
 
-## Requisitos previos
+## Requisitos
 
-1. **Python 3.11+**
-2. **Ollama** instalado y corriendo, con un modelo descargado:
-   ```
-   ollama pull llama3.1
-   ```
-3. **Contraseña de aplicación de Gmail** (no hace falta Google Cloud
-   Console ni facturación):
-   - Activa la verificación en 2 pasos en tu cuenta de Google, si no la
-     tienes ya.
-   - Genera una contraseña de aplicación en
-     [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
-   - Comprueba que el acceso IMAP esté activado en Gmail
-     (Configuración → Reenvío y POP/IMAP → Habilitar IMAP).
+- Python 3.11 o posterior, con soporte gráfico Tk para la aplicación de escritorio.
+- Ollama en ejecución y un modelo descargado:
+  ```bash
+  ollama pull llama3.1
+  ```
+- Una cuenta Gmail con acceso IMAP y una contraseña de aplicación disponible según su configuración. No se utiliza la contraseña habitual de la cuenta.
 
 ## Instalación
 
 ```bash
+git clone https://github.com/alejandroomesa/email-agent.git
+cd email-agent
 python -m venv .venv
-./.venv/Scripts/python -m pip install -r requirements.txt   # Windows
-# source .venv/bin/activate && pip install -r requirements.txt   # macOS/Linux
+```
+
+Activa el entorno:
+
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+```
+
+```bash
+# macOS / Linux
+source .venv/bin/activate
+```
+
+```bash
+python -m pip install -r requirements.txt
 ```
 
 ## Configuración
 
-Copia `.env.example` como `.env` y completa tus credenciales:
+Copia `.env.example` a `.env` y completa los valores de tu cuenta de prueba:
 
-```
+```dotenv
 GMAIL_ADDRESS=tu_correo@gmail.com
-GMAIL_APP_PASSWORD=xxxxxxxxxxxxxxxx
+GMAIL_APP_PASSWORD=REEMPLAZAR
+OLLAMA_MODEL=llama3.1
+GMAIL_QUERY=in:inbox is:unread
 ```
 
-`.env` está en `.gitignore`: nunca se sube al repositorio.
+`.env` y `data/` están excluidos de Git. La contraseña se guarda en texto en el archivo local `.env`; protege el acceso a ese archivo y no lo incluyas en capturas o grabaciones.
 
-Edita `app/categories.yaml` con tus propias categorías. Cada una tiene:
+En `app/categories.yaml`, cada categoría define:
 
-- `name`: nombre corto interno.
-- `description`: se le pasa tal cual al LLM — describe bien qué tipo de
-  email cae en esta categoría.
-- `gmail_label`: nombre de la etiqueta que se aplicará en Gmail.
+| Campo | Uso |
+| --- | --- |
+| `name` | Identificador de categoría |
+| `description` | Criterio que recibe el clasificador |
+| `gmail_label` | Etiqueta que se aplica en Gmail |
 
-Variables de entorno opcionales (todas tienen un valor por defecto
-razonable):
+Variables opcionales:
 
-| Variable          | Default               | Qué controla                            |
-|-------------------|------------------------|------------------------------------------|
-| `OLLAMA_MODEL`    | `llama3.1`             | Modelo de Ollama usado para clasificar   |
-| `GMAIL_QUERY`     | `in:inbox is:unread`   | Búsqueda de Gmail (sintaxis Gmail normal)|
-| `CATEGORIES_PATH` | `app/categories.yaml`  | Ruta al archivo de categorías            |
-| `DB_PATH`         | `data/agent.db`        | Base SQLite de auditoría                 |
+| Variable | Valor predeterminado |
+| --- | --- |
+| `OLLAMA_MODEL` | `llama3.1` |
+| `GMAIL_QUERY` | `in:inbox is:unread` |
+| `CATEGORIES_PATH` | `app/categories.yaml` |
+| `DB_PATH` | `data/agent.db` |
 
-## Uso
+## Aplicación de escritorio
+
+Con el entorno virtual activo:
 
 ```bash
-./.venv/Scripts/python -m uvicorn app.main:app --reload
+python run_desktop.py
 ```
 
-Endpoints (documentación interactiva en `http://localhost:8000/docs`):
+La aplicación organiza bandeja, categorías y ajustes en vistas independientes. Configura los datos de prueba antes de iniciar una sincronización.
 
-- `GET /categories` — lista las categorías configuradas.
-- `POST /sync` — ejecuta el pipeline: lee, clasifica y etiqueta emails
-  nuevos. Devuelve un resumen (cuántos procesados, por categoría).
-- `GET /processed?limit=50` — lista las últimas clasificaciones
-  guardadas, para revisar si el modelo está acertando.
-
-## Tests
+## API local
 
 ```bash
-./.venv/Scripts/python -m pytest -v
+python -m uvicorn app.main:app --reload --host 127.0.0.1
 ```
 
-Todos los tests usan mocks (de Ollama y de IMAP) — no requieren conexión
-real ni credenciales.
+Documentación interactiva: [localhost:8000/docs](http://localhost:8000/docs).
 
-## Roadmap
+| Método | Ruta | Función |
+| --- | --- | --- |
+| GET | `/categories` | Consultar categorías |
+| POST | `/sync` | Leer, clasificar y etiquetar mensajes |
+| GET | `/processed?limit=50` | Consultar el registro local |
 
-- [x] Fase 1 — Lectura + clasificación + etiquetado (MVP actual).
-- [ ] Fase 2 — Generación de borrador de respuesta con IA.
-- [ ] Fase 2 — Endpoints de aprobación/rechazo humano
-      (`POST /approve/{id}`, `POST /reject/{id}`).
-- [ ] Fase 2 — Envío del email tras la aprobación humana.
+La API no implementa autenticación. Mantén su acceso local.
+
+## Pruebas
+
+```bash
+python -m pytest -v
+```
+
+Las pruebas de clasificador, cliente Gmail y almacenamiento usan dobles para las integraciones. No sustituyen una comprobación manual de escritorio, IMAP y modelo local.
+
+## Recorrido de demostración
+
+1. Prepara mensajes ficticios sin leer en una cuenta de prueba.
+2. Define dos o tres categorías claramente distintas.
+3. Inicia el escritorio o la API y ejecuta una sincronización.
+4. Comprueba la clasificación, las etiquetas en Gmail y el registro local.
+5. Repite la sincronización para observar cómo se omiten mensajes ya registrados.
+
+## Límites conocidos
+
+- La clasificación puede equivocarse; la confianza del modelo no es una garantía.
+- El cuerpo utilizado para clasificar se limita a 4.000 caracteres.
+- No hay aprobación previa al etiquetado.
+- El registro SQLite y el archivo de configuración requieren protección local.
+- No se generan ni envían respuestas.
+
+## Estructura
+
+- `app/gmail_client.py`: consulta y etiquetado mediante IMAP.
+- `app/classifier.py`: clasificación con Ollama.
+- `app/sync_service.py`: coordinación del flujo.
+- `app/storage.py`: registro SQLite.
+- `app/main.py`: API FastAPI.
+- `app/desktop/`: interfaz gráfica.
+- `tests/`: pruebas automatizadas.
+
+Desarrollado en el repositorio de [Alejandro Mesa](https://github.com/alejandroomesa).
